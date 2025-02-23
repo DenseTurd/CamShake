@@ -5,13 +5,13 @@ using UnityEngine;
 public class Cam : MonoBehaviour
 {
     #region Instance
-    public static Cam Instance { get; private set; }
+    public static Cam Inst { get; private set; }
 
     private void Awake()
     {
-        if (Instance == null)
+        if (Inst == null)
         {
-            Instance = this;
+            Inst = this;
         }
         else
         {
@@ -20,7 +20,8 @@ public class Cam : MonoBehaviour
     }
     #endregion Instance
 
-    public Transform stashPos;
+    public Transform stashStart;
+    public Transform stashEnd;
 
     Vector3 homePos;
     Quaternion homeRot;
@@ -34,13 +35,18 @@ public class Cam : MonoBehaviour
     Quaternion shakeRot;
     Vector3 prevShakePos;
     Quaternion prevShakeRot;
-    List<Shake> shakes = new();
+
+    List<Flux> shakes = new();
+
     bool moving;
     bool shaking;
+    bool follow;
     bool goCurrentPos;
     float T;
     float shakeT;
     float easeDur = 0.5f;
+
+    Transform followTrans;
 
     void Start()
     {   
@@ -55,7 +61,7 @@ public class Cam : MonoBehaviour
         prevShakeRot = homeRot;
     }
 
-    public void Shake(Shake shake)
+    public void Shake(Flux shake)
     {
         shake.Init();
         shakes.Add(shake);
@@ -88,16 +94,22 @@ public class Cam : MonoBehaviour
 
     public async Task EaseToAspect(Aspect aspect, float dur=0.5f)
     {
-        Vector3 bodPos = aspect.Pos();
-        float xOffset = Rand.Range(-1f, 1f);
-        Vector3 pos = new(bodPos.x + xOffset, bodPos.y + 2, bodPos.z - 3);
-        Vector3 relativePos = new Vector3(bodPos.x, bodPos.y + 0.75f, bodPos.z) - pos;
-        Quaternion rot = Quaternion.LookRotation(relativePos);
-        await EaseTo(pos, rot, dur);
+        Vector3 aspectPos = aspect.Pos();
+        await EaseTo(aspectPos, dur);
         GhostProps();
     }
 
     public async Task EaseToHome(float dur=0.5f) => await EaseTo(homePos, homeRot, dur);
+
+    public async Task EaseTo(Vector3 pos, float dur=0.5f)
+    {
+        float xOffset = Rand.Range(-1f, 1f);
+        Vector3 poz = new(pos.x + xOffset, pos.y + 2, pos.z - 3);
+        Vector3 relativePos = new Vector3(pos.x, pos.y + 0.75f, pos.z) - poz;
+        Quaternion rot = Quaternion.LookRotation(relativePos);
+        await EaseTo(poz, rot, dur);
+    }
+
     public async Task EaseTo(Vector3 pos, Quaternion rot, float dur)
     {
         startPos = currentPos;
@@ -137,10 +149,23 @@ public class Cam : MonoBehaviour
         //}
     }
 
+    public void Follow(Transform trans)
+    {
+        follow = true;
+        followTrans = trans;
+    }
+
+    public void StopFollow()
+    {
+        follow = false;
+        followTrans = null;
+    }
+
     void Update()
     {
         Moving();
         Shaking();
+        Following();
     }
 
     void Moving()
@@ -169,9 +194,7 @@ public class Cam : MonoBehaviour
         {
             for (int i = 0; i < shakes.Count; i++)
             {
-                Shake shake = shakes[i];
-                float elapsed = Time.time - shake.startTime;
-                shake.T = elapsed / shake.duration;
+                Flux shake = shakes[i];
 
                 if (shake.T > 1)
                 {
@@ -179,7 +202,7 @@ public class Cam : MonoBehaviour
                     continue;
                 }
 
-                intensity += shake.intensity * EaseIntensity(shake.T);
+                intensity += shake.Intensity();
             }
 
             if (intensity > 1) intensity = 1;
@@ -194,6 +217,18 @@ public class Cam : MonoBehaviour
         }
 
         if (shaking) ShakeCam(intensity);
+    }
+
+    void Following()
+    {
+        if (!follow) return;
+
+        Vector3 pos = followTrans.position;
+        Vector3 poz = new(pos.x , pos.y + 1.5f, pos.z - 3);
+        Vector3 relativePos = new Vector3(pos.x, pos.y, pos.z) - poz;
+        Quaternion rot = Quaternion.LookRotation(relativePos);
+        transform.rotation = rot;
+        transform.position = poz;
     }
 
     void ShakeCam(float intensity)
@@ -217,11 +252,6 @@ public class Cam : MonoBehaviour
 
         transform.position = Vector3.Lerp(prevShakePos, shakePos, Ease.InOutSine(shakeT));
         transform.rotation = Quaternion.Lerp(prevShakeRot, shakeRot, shakeT);
-    }
-
-    float EaseIntensity(float T)
-    {
-        return T <= 0.5 ? Ease.InOutSine(T) : Ease.InOutSine(1 - T);
     }
 
     Vector3 ShakeOffset(float intensity)
